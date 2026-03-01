@@ -18,8 +18,8 @@ class Program
             //서버 초기화
             server.Initialize();
             
-            //TODO: 서버 시작
-            //await server.StartAsync();
+            //서버 시작
+            await server.StartAsync();
         }
         catch (Exception e)
         {

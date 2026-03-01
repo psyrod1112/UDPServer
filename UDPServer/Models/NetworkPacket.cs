@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using UDPServer.Utils;
 
 namespace UDPServer.Models;
 
@@ -13,16 +14,17 @@ public enum PacketType
     PlayerUpdate = 3, //플레이어 위치 및 상태 업데이트
     PlayerSpawn = 4, //플레이어 스폰 요청, 다른 플레이어에게 새 플레이어 접속 알림
     PlayerDespawn = 5, //플레이어 디스폰 요청, 다른 플레이어에게 플레이어 접속 종료 알림
+    PlayerFire = 6 //플레이어 발사 이벤트
 }
 
 public class NetworkPacket
 {
     public PacketType Type { get; set; }
-    public string PlayerID { get; set; }
+    public int PlayerID { get; set; }
     //Json 파싱 오류로 인해 별도의 컨버터 사용
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(Vector3Converter))]
     public Vector3 Position { get; set; }
-    [JsonConverter(typeof(JsonStringEnumConverter))]
+    [JsonConverter(typeof(Vector3Converter))]
     public Vector3 Rotation { get; set; }
     
     //패킷 생성 시간
