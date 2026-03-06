@@ -1,6 +1,9 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
+using System.Threading.Tasks;
 using UDPServer.Models;
 
 namespace UDPServer.Core;
@@ -42,9 +45,9 @@ public class UDPGameServer
             
             //소켓 옵션 설정
             _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            IPEndPoint serverEndPoint = new IPEndPoint(IPAddress.Parse(_config.ServerIP), _config.ServerPort);
             
             //소켓 바인딩
+            IPEndPoint serverEndPoint = new IPEndPoint(IPAddress.Parse(_config.ServerIP), _config.ServerPort);
             _socket.Bind(serverEndPoint);
             Console.WriteLine($"[서버] 초기화 완료: {_config.ServerIP}:{_config.ServerPort}");
         }
@@ -133,7 +136,7 @@ public class UDPGameServer
                     break;
                 case PacketType.PlayerLeave:
                     Console.WriteLine("[서버] 플레이어 접속 종료 요청");
-                    HandlePlayerLeave(packet.PlayerID);
+                    HandlePlayerLeave(packet.PlayerId);
                     break;
                 case PacketType.PlayerUpdate:
                     Console.WriteLine("[서버] 플레이어 정보 업데이트 요청");
@@ -170,18 +173,18 @@ public class UDPGameServer
         }
         
         //새로운 플레이어 ID 할당(스레드 안전하게 증가)
-        int newPlayerID = Interlocked.Increment(ref _nextPlayerId);
+        int newPlayerId = Interlocked.Increment(ref _nextPlayerId);
         
         //새로운 플레이어 데이터 생성
-        PlayerData newPlayerData = new PlayerData(newPlayerID, clientEP);
+        PlayerData newPlayerData = new PlayerData(newPlayerId, clientEP);
         
         //초기 위치와 회전 설정
         newPlayerData.UpdateTransform(packet.Position, packet.Rotation);
         
         //플레이어 등록
-        if (_players.TryAdd(newPlayerID, newPlayerData))
+        if (_players.TryAdd(newPlayerId, newPlayerData))
         {
-            Console.WriteLine($"[서버] 플레이어 {newPlayerID} 접속 성공: {clientEP}");
+            Console.WriteLine($"[서버] 플레이어 {newPlayerId} 접속 성공: {clientEP}");
             
             //플레이어 접속 성공 응답 전송(packetType.PlayerSpawn)
             SendPlayerSpawn(newPlayerData, clientEP);
@@ -193,7 +196,7 @@ public class UDPGameServer
         }
         else
         {
-            Console.WriteLine($"[서버] 플레이어 {newPlayerID} 등록 실패: {clientEP}");
+            Console.WriteLine($"[서버] 플레이어 {newPlayerId} 등록 실패: {clientEP}");
         }
         
         
@@ -203,59 +206,59 @@ public class UDPGameServer
     {
         if (_players.TryRemove(playerID, out var playerData))
         {
-            Console.WriteLine($"[서버] 플레이어 접속해제 - ID: {playerData.PlayerID}, EP: {playerData.EndPoint}");
+            Console.WriteLine($"[서버] 플레이어 접속해제 - ID: {playerData.PlayerId}, EP: {playerData.EndPoint}");
             
             //다른 플레이어에게 접속해제 알림 전송
             BroadcastPlayerDespawn(playerID);
         }
         else
         {
-            Console.WriteLine($"[서버] 오류! 플레이어 접속해제 실패 - ID: {playerData.PlayerID} 존재하지 않음");
+            Console.WriteLine($"[서버] 오류! 플레이어 접속해제 실패 - ID: {playerData.PlayerId} 존재하지 않음");
         }
     }
 
     private void HandlePlayerUpdate(NetworkPacket packet, IPEndPoint clientEP)
     {
         //서버에서 해당 플레이어가 존재하는 지 확인
-        if (_players.TryGetValue(packet.PlayerID, out var playerData))
+        if (_players.TryGetValue(packet.PlayerId, out var playerData))
         {
             //클라이언트 검증
             if (playerData.EndPoint.Equals(clientEP))
             {
                 //플레이어 위치 회전 정보 갱신
                 playerData.UpdateTransform(packet.Position, packet.Rotation);
-                Console.WriteLine($"[서버] 플레이어 {packet.PlayerID} 위치/회전 정보 갱신 POS : {packet.Position}, Rot: {packet.Rotation} ");
+                Console.WriteLine($"[서버] 플레이어 {packet.PlayerId} 위치/회전 정보 갱신 POS : {packet.Position}, Rot: {packet.Rotation} ");
                 //다른 플레이어들에게 위치 업데이트 알림 전송
                 BroadcastplayerUpdate(packet, clientEP);
             }
             else
             {
-                Console.WriteLine($"[서버] 플레이어 {packet.PlayerID} 정보 갱신 실패 - 클라이언트 EP불일치");
+                Console.WriteLine($"[서버] 플레이어 {packet.PlayerId} 정보 갱신 실패 - 클라이언트 EP불일치");
                 return;
             }
         }
         else
         {
-            Console.WriteLine($"[서버] 플레이어 {packet.PlayerID} 정보 갱신 실패 - 플레이어 존재하지 않음");
+            Console.WriteLine($"[서버] 플레이어 {packet.PlayerId} 정보 갱신 실패 - 플레이어 존재하지 않음");
         }
     }
 
     private void HandlePlayerFire(NetworkPacket packet, IPEndPoint clientEP)
     {
         //서버에서 해당 플레이어 정보 조회
-        if (_players.TryGetValue(packet.PlayerID, out var playerData))
+        if (_players.TryGetValue(packet.PlayerId, out var playerData))
         {
             //클라이언트 주소 검증
             if (playerData.EndPoint.Equals(clientEP))
             {
-                Console.WriteLine($"[서버] 플레이어 {playerData.PlayerID} 발사 이벤트 처리 완료");
+                Console.WriteLine($"[서버] 플레이어 {playerData.PlayerId} 발사 이벤트 처리 완료");
                 
                 //발사 이벤트를 다른 플레이어들에게 전송
                 BroadcastPlayerFire(packet, clientEP);
             }
             else
             {
-                Console.WriteLine($"[서버] 플레이어 {playerData.PlayerID} 발사 이벤트 실패!");
+                Console.WriteLine($"[서버] 플레이어 {playerData.PlayerId} 발사 이벤트 실패!");
             }
         }
     }
@@ -273,7 +276,7 @@ public class UDPGameServer
             NetworkPacket packet = new NetworkPacket
             {
                 Type = PacketType.PlayerSpawn,
-                PlayerID = playerData.PlayerID,
+                PlayerId = playerData.PlayerId,
                 Position = playerData.Position,
                 Rotation = playerData.Rotation,
                 Timestamp = DateTime.UtcNow
@@ -337,11 +340,11 @@ public class UDPGameServer
 
         if (sentCount > 0)
         {
-            Console.WriteLine($"[서버] 기존 플레이어들에게 새로운 플레이어 {newPlayer.PlayerID} 스폰 알림 전송 완료 (총 {sentCount}명)");
+            Console.WriteLine($"[서버] 기존 플레이어들에게 새로운 플레이어 {newPlayer.PlayerId} 스폰 알림 전송 완료 (총 {sentCount}명)");
         }
         else
         {
-            Console.WriteLine($"[서버] 오류! 기존 플레이어가 없어 새로운 플레이어 {newPlayer.PlayerID} 스폰 알림 전송 생략");
+            Console.WriteLine($"[서버] 오류! 기존 플레이어가 없어 새로운 플레이어 {newPlayer.PlayerId} 스폰 알림 전송 생략");
         }
     }
     
@@ -352,7 +355,7 @@ public class UDPGameServer
             NetworkPacket? newPacket = new NetworkPacket
             {
                 Type = PacketType.PlayerDespawn,
-                PlayerID = playerID,
+                PlayerId = playerID,
                 Timestamp = DateTime.UtcNow
             };
             
@@ -360,7 +363,7 @@ public class UDPGameServer
             int sentCount = 0;
             foreach (var existingPlayer in _players)
             {
-                if (existingPlayer.Value.PlayerID != playerID)
+                if (existingPlayer.Value.PlayerId != playerID)
                 {
                     _socket.SendTo(data, existingPlayer.Value.EndPoint);
                     sentCount++;
@@ -383,7 +386,7 @@ public class UDPGameServer
             var newPacket = new NetworkPacket
             {
                 Type = PacketType.PlayerUpdate,
-                PlayerID = packet.PlayerID,
+                PlayerId = packet.PlayerId,
                 Position = packet.Position,
                 Rotation = packet.Rotation,
                 Timestamp = DateTime.UtcNow
@@ -399,7 +402,7 @@ public class UDPGameServer
                     sentCount++;
                 }
             }
-            Console.WriteLine($"[서버] 플레이어 {packet.PlayerID} 위치/회전 업데이트 전송 완료 (총 {sentCount}명)");
+            Console.WriteLine($"[서버] 플레이어 {packet.PlayerId} 위치/회전 업데이트 전송 완료 (총 {sentCount}명)");
         }
         catch (Exception e)
         {
@@ -415,7 +418,7 @@ public class UDPGameServer
             var newPacket = new NetworkPacket
             {
                 Type = PacketType.PlayerFire,
-                PlayerID = packet.PlayerID,
+                PlayerId = packet.PlayerId,
                 Position = packet.Position,
                 Rotation = packet.Rotation,
                 Timestamp = DateTime.UtcNow
@@ -430,7 +433,7 @@ public class UDPGameServer
                     sentCount++;
                 }
             }
-            Console.WriteLine($"[서버] 플레이어 {newPacket.PlayerID} 발사 이벤트 전송 완료 (총 {sentCount}명)");
+            Console.WriteLine($"[서버] 플레이어 {newPacket.PlayerId} 발사 이벤트 전송 완료 (총 {sentCount}명)");
         }
         catch (Exception e)
         {

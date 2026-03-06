@@ -1,4 +1,6 @@
-﻿namespace UDPServer.Core;
+﻿using System;
+
+namespace UDPServer.Core;
 
 public class ServerConfig //서버 정보 클래스
 {

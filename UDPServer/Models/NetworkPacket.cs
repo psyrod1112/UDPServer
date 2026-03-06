@@ -1,4 +1,5 @@
-﻿using System.Numerics;
+﻿using System;
+using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -20,7 +21,7 @@ public enum PacketType
 public class NetworkPacket
 {
     public PacketType Type { get; set; }
-    public int PlayerID { get; set; }
+    public int PlayerId { get; set; }
     //Json 파싱 오류로 인해 별도의 컨버터 사용
     [JsonConverter(typeof(Vector3Converter))]
     public Vector3 Position { get; set; }

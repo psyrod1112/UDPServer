@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System;
+using System.Net;
 using System.Numerics;
 
 namespace UDPServer.Models;
@@ -7,7 +8,7 @@ public class PlayerData
 {
     #region 프로퍼티
     
-    public int PlayerID { get; set; }
+    public int PlayerId { get; set; }
     public Vector3 Position { get; set; }
     public Vector3 Rotation { get; set; }
     public IPEndPoint EndPoint { get; set; }
@@ -17,9 +18,9 @@ public class PlayerData
 
     #region 생성자
 
-    public PlayerData(int playerID, IPEndPoint endPoint)
+    public PlayerData(int playerId, IPEndPoint endPoint)
     {
-        PlayerID = playerID;
+        PlayerId = playerId;
         EndPoint = endPoint;
         LastUpdateTime = DateTime.UtcNow;
         Position = Vector3.Zero;
