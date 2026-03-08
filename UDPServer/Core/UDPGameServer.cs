@@ -9,7 +9,7 @@ using UDPServer.Models;
 
 namespace UDPServer.Core;
 
-public class UDPGameServer
+public class UDPGameServer : IDisposable
 {
     #region 프로퍼티
 
@@ -24,6 +24,8 @@ public class UDPGameServer
     private Thread _logicThread;
     private Thread[] _workerThreads;
     private const int WORKER_THREAD_COUNT = 10;
+    
+    private TimeoutManager _timeoutManager;
 
     #endregion
 
@@ -57,6 +59,9 @@ public class UDPGameServer
             IPEndPoint serverEndPoint = new IPEndPoint(IPAddress.Parse(_config.ServerIP), _config.ServerPort);
             _socket.Bind(serverEndPoint);
             Console.WriteLine($"[서버] 초기화 완료: {_config.ServerIP}:{_config.ServerPort}");
+            
+            //TimeoutManager 초기화
+            _timeoutManager = new TimeoutManager(_players, _config.PlayerTimeoutSeconds, HandlePlayerTimeout);
         }
         catch (Exception e)
         {
@@ -64,6 +69,8 @@ public class UDPGameServer
             throw;
         }
     }
+
+    
 
     //서버 시작 메서드
     public async Task StartAsync()
@@ -195,6 +202,13 @@ public class UDPGameServer
             {
                 Console.WriteLine($"[서버] 잘못된 패킷 형식 수신 {clientEP}");
             }
+            
+            //모든 패킷 수신 시 heartbeat 처리
+            if (packet?.PlayerId > 0 && _players.TryGetValue(packet.PlayerId, out var player))
+            {
+                player.RefreshLastUpdateTime();
+                
+            }
 
             switch (packet?.Type)
             {
@@ -214,6 +228,9 @@ public class UDPGameServer
                     Console.WriteLine("[서버] 플레이어 발사 이벤트 요청");
                     HandlePlayerFire(packet, clientEP);
                     break;
+                case PacketType.Heartbeat:
+                    HandleHearHeartbeat(packet, clientEP);
+                    break;
                 default:
                     break;
             }
@@ -224,11 +241,35 @@ public class UDPGameServer
         }
     }
 
-    
 
     #endregion
 
     #region 핸들러 메서드
+
+    private void HandleHearHeartbeat(NetworkPacket packet, IPEndPoint clientEP)
+    {
+        if (_players.TryGetValue(packet.PlayerId, out var player))
+        {
+            if (clientEP.Equals(player.EndPoint))
+            {
+                player.RefreshLastUpdateTime();
+            }
+        }
+    }
+    
+    private void HandlePlayerTimeout(int playerId)
+    {
+        Console.WriteLine($"[서버] 플레이어 {playerId} 타임아웃 처리 중...");
+        if (_players.TryGetValue(playerId, out var player))
+        {
+            SendPlayerTimeout(playerId, player.EndPoint);
+            
+            //플레이어 정보 삭제
+            HandlePlayerLeave(playerId);
+        }
+    }
+
+    
 
     //새로운 플레이어 접속 처리
     private void HandlePlayerJoin(NetworkPacket packet, IPEndPoint clientEP)
@@ -335,6 +376,29 @@ public class UDPGameServer
 
     #region 패킷 전송 메서드
 
+    //타임아웃 패킷 전송
+    private void SendPlayerTimeout(int playerId, IPEndPoint clientEP)
+    {
+        try
+        {
+            NetworkPacket timeoutPacket = new NetworkPacket
+            {
+                Type = PacketType.Timeout,
+                PlayerId = playerId,
+                Timestamp = DateTime.UtcNow
+            };
+            
+            byte[] data = timeoutPacket.ToBytes();
+            _socket?.SendTo(data, clientEP);
+            
+            Console.WriteLine($"[서버] 플레이어 {playerId} 타임아웃 패킷 전송 완료 to {clientEP}");
+        }
+        catch (Exception e)
+        {
+            
+        }
+    }
+    
     //PlayerSpawn 패킷 전송
     private void SendPlayerSpawn(PlayerData playerData, IPEndPoint clientEP)
     {
@@ -437,6 +501,9 @@ public class UDPGameServer
                     sentCount++;
                 }
             }
+
+            _players.TryRemove(playerID, out _);
+            
             Console.WriteLine($"[서버] 플레이어 {playerID} 접속 해제 알림 전송 완료 (총 {sentCount}명)");
         }
         catch (Exception e)
@@ -511,5 +578,12 @@ public class UDPGameServer
 
 
     #endregion
-    
+
+    public void Dispose()
+    {
+        if (!_isRunning) return;
+        _isRunning = false;
+        _players.Clear();
+        _socket?.Dispose();
+    }
 }

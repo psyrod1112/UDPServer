@@ -14,7 +14,17 @@ public class PlayerData
     public IPEndPoint EndPoint { get; set; }
     public DateTime LastUpdateTime  { get; set; }
     
-    
+    public bool IsConnected { get; private set; }
+
+    public void RefreshLastUpdateTime()
+    {
+        LastUpdateTime = DateTime.UtcNow;
+    }
+
+    public void SetConnectionStatus(bool isConnected)
+    {
+        IsConnected = isConnected;
+    }
     
     #endregion
 
