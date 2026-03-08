@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
@@ -17,6 +18,12 @@ public class UDPGameServer
     private readonly ConcurrentDictionary<int, PlayerData> _players;
     private bool _isRunning;
     private int _nextPlayerId;
+    
+    //JobQueue 및 패킷 스레드
+    private JobQueue _jobQueue = new JobQueue();
+    private Thread _logicThread;
+    private Thread[] _workerThreads;
+    private const int WORKER_THREAD_COUNT = 10;
 
     #endregion
 
@@ -58,6 +65,7 @@ public class UDPGameServer
         }
     }
 
+    //서버 시작 메서드
     public async Task StartAsync()
     {
         if (_isRunning)
@@ -68,7 +76,61 @@ public class UDPGameServer
         Console.WriteLine("[서버] 서버 시작...");
         _isRunning = true;
 
+        StartLogicThread();
+        
         await Task.Run(ReceiveLoop);
+    }
+    
+    //패킷 처리 로직 스레드
+    private void StartLogicThread()
+    {
+        _workerThreads = new Thread[WORKER_THREAD_COUNT];
+        for (int i = 0; i < WORKER_THREAD_COUNT; i++)
+        {
+            int threadId = i;
+            _workerThreads[i] = new Thread(() => WorkerThreadLoop(threadId));
+            _workerThreads[i].IsBackground = true;
+            _workerThreads[i].Start();
+        }
+        Console.WriteLine($"[서버] 패킷 처리용 워커 스레드 {WORKER_THREAD_COUNT}개 시작");
+        
+        
+        // _logicThread = new Thread(() =>
+        // {
+        //     Console.WriteLine("[스레드] 스레드 루프 시작");
+        //     while (_isRunning)
+        //     {
+        //         IJob job = _jobQueue.Dequeue();
+        //         job.Execute();
+        //     }
+        //     
+        //     Console.WriteLine("[서버] 로직 스레드 종료");
+        // });
+        //
+        // _logicThread.IsBackground = true;
+        // _logicThread.Start();
+    }
+
+    private void WorkerThreadLoop(int threadId)
+    {
+        int processCount = 0;
+        
+        while (_isRunning)
+        {
+            try
+            {
+                IJob job = _jobQueue.Dequeue();
+                job.Execute();
+                
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[서버] 워커 스페드 {threadId} 패킷 처리 완료 (총 : {++processCount})");
+                Console.ResetColor();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"[서버] 워커 스레드 {threadId} 실행 오류: {e.Message}");
+            }
+        }
     }
 
     #endregion
@@ -78,7 +140,8 @@ public class UDPGameServer
     public void ReceiveLoop()
     {
         //패킷 수신용 버퍼
-        byte[] buffer = new byte[_config.BufferSize];
+        //byte[] buffer = new byte[_config.BufferSize];
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(_config.BufferSize);
         //엔드포인트
         EndPoint clientEP = new IPEndPoint(IPAddress.Any, _config.ServerPort);
 
@@ -89,25 +152,30 @@ public class UDPGameServer
                 int receiveBytes = _socket.ReceiveFrom(buffer, ref clientEP);
                 if (receiveBytes > 0)
                 {
-                    //수신된 바이트 배열을 실제 데이터 크기만큼 복사
-                    byte[] data = new byte[receiveBytes];
-                    //버퍼에서 실제 수신된 데이터만 복사
-                    Array.Copy(buffer, data, receiveBytes);
                     
-                    Console.WriteLine($"[서버] {clientEP} 로부터 {receiveBytes} 바이트 수신");
+                    PacketJob packetJob = new PacketJob(this, buffer, receiveBytes, (IPEndPoint)clientEP);
+                    _jobQueue.Enqueue(packetJob);
                     
-                    //수신된 데이터 처리 로직 (패킷 파싱)
-                    ProcessPacket(data, (IPEndPoint)clientEP);
+                    // //수신된 바이트 배열을 실제 데이터 크기만큼 복사
+                    // byte[] data = new byte[receiveBytes];
+                    // //버퍼에서 실제 수신된 데이터만 복사
+                    // Array.Copy(buffer, data, receiveBytes);
+                    //
+                    // Console.WriteLine($"[서버] {clientEP} 로부터 {receiveBytes} 바이트 수신");
+                    //
+                    // //수신된 데이터 처리 로직 (패킷 파싱)
+                    // //ProcessPacket(data, (IPEndPoint)clientEP);
                 }
             }
             catch (SocketException e)
             {
                 Console.WriteLine($"[서버] 소켓 오류 발생: {e.Message}");
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Console.WriteLine($"[서버] 수신 오류 발생: {e.Message}");
             }
+            
         }
         Console.WriteLine("[서버] 수신 루프 종료");
         
@@ -117,12 +185,12 @@ public class UDPGameServer
 
     #region 패킷 파싱
 
-    private void ProcessPacket(byte[] data, IPEndPoint clientEP)
+    public void ProcessPacket(byte[] data, int bufferSize, IPEndPoint clientEP)
     {
         try
         {
             //바이트 배열을 NetworkPacket 객체로 변환
-            NetworkPacket? packet = NetworkPacket.FromBytes(data);
+            NetworkPacket? packet = NetworkPacket.FromBytes(data, bufferSize);
             if (packet == null)
             {
                 Console.WriteLine($"[서버] 잘못된 패킷 형식 수신 {clientEP}");
@@ -437,7 +505,7 @@ public class UDPGameServer
         }
         catch (Exception e)
         {
-            
+            Console.WriteLine($"[오류] 발사 패킷 발송 오류 : {e.Message}");
         }
     }
 

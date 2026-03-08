@@ -59,9 +59,9 @@ public class NetworkPacket
         return JsonSerializer.Deserialize<NetworkPacket>(json);
     }
 
-    public static NetworkPacket? FromBytes(byte[] bytes)
+    public static NetworkPacket? FromBytes(byte[] bytes, int bufferSize)
     {
-        string json = Encoding.UTF8.GetString(bytes);
+        string json = Encoding.UTF8.GetString(bytes, 0, bufferSize);
         return FromJson(json);
     }
     

@@ -14,6 +14,8 @@ public class PlayerData
     public IPEndPoint EndPoint { get; set; }
     public DateTime LastUpdateTime  { get; set; }
     
+    
+    
     #endregion
 
     #region 생성자
